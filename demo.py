@@ -37,6 +37,7 @@ conf = Hunyuan3DPaintConfig(max_num_view, resolution)
 conf.realesrgan_ckpt_path = "hy3dpaint/ckpt/RealESRGAN_x4plus.pth"
 conf.multiview_cfg_path = "hy3dpaint/cfgs/hunyuan-paint-pbr.yaml"
 conf.custom_pipeline = "hy3dpaint/hunyuanpaintpbr"
+conf.multiview_pretrained_path = "/home/share/accelerate_src/openfar/models/tencent/Hunyuan3D-2.1/hunyuan3d-paintpbr-v2-1"
 paint_pipeline = Hunyuan3DPaintPipeline(conf)
 
 output_mesh_path = 'demo_textured.glb'
