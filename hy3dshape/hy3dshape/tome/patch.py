@@ -6,22 +6,36 @@ Usage:
     # ... run sampling normally ...
     # remove_patch(pipeline.model)  # to revert
 
-Strategy
---------
-We monkey-patch HunYuanDiTBlock.forward to insert merge/unmerge around the
-self-attention sub-block only. Cross-attention and MLP/MoE are untouched.
+Strategy (full-block ToMe-SD)
+-----------------------------
+We monkey-patch HunYuanDiTBlock.forward to wrap the **entire block** in a
+single merge/unmerge pair. All per-token compute (self-attention,
+cross-attention query side, MLP/MoE) runs on the merged token set; only
+the skip and modulation operate in full-token space because the stored
+skip_value has the original token count.
 
 Per block:
-    x_normed = norm1(x)                      # used as both metric and attn input
-    merge, unmerge = bipartite_soft_matching(x_normed, r, class_token=True)
-    x_normed_m, _ = merge_wavg(merge, x_normed)
-    attn_out = unmerge(attn1(x_normed_m))    # restore to original token count
-    x = x + attn_out
-    # cross-attn and FFN run on the full token set as usual
+    # full-token: skip + modulation
+    if skip_linear: x = skip_norm(skip_linear(cat(skip_value, x)))
+    if timested_modulate: x = x + default_modulation(c)
+
+    # merge once
+    metric = norm1(x)                                  # Xpre as similarity feature
+    merge, unmerge = bipartite_soft_matching(metric, r, class_token=True)
+    x_m, _ = merge_wavg(merge, x)                      # merge residual stream
+
+    # all sub-blocks on merged tokens
+    x_m = x_m + attn1(norm1(x_m))
+    x_m = x_m + attn2(norm2(x_m), text_states)
+    x_m = x_m + (moe or mlp)(norm3(x_m))
+
+    # unmerge once -> 4097 tokens for skip storage / next block input
+    return unmerge(x_m)
 
 Token 0 is the timestep-conditioning vector (`c`) prepended in the model
 forward; it is treated as a class token and never selected as a merge source.
 """
+import types
 from typing import Optional
 
 import torch
@@ -30,47 +44,53 @@ from .merge import bipartite_soft_matching, merge_wavg
 
 
 def _make_patched_forward(original_forward):
-    """Return a forward that wraps self-attention with ToMe-SD merge/unmerge."""
+    """Return a forward that wraps the whole block with ToMe-SD merge/unmerge."""
 
     def forward(self, x, c=None, text_states=None, skip_value=None):
-        # 1. Skip connection (U-Net style) — unchanged
+        # 1. Skip connection (must run on original token count to match skip_value)
         if self.skip_linear is not None:
             cat = torch.cat([skip_value, x], dim=-1)
             x = self.skip_linear(cat)
             x = self.skip_norm(x)
 
-        # 2. Optional timestep modulation — unchanged
+        # 2. Timestep modulation (full-token)
         if self.timested_modulate:
             shift_msa = self.default_modulation(c).unsqueeze(dim=1)
             x = x + shift_msa
 
-        # 3. Self-attention with ToMe-SD merge/unmerge
         ratio = getattr(self, "_tome_ratio", 0.0)
-        x_normed = self.norm1(x)
-        # token count excluding class token (token 0 is the c-token)
-        n_img = x_normed.shape[1] - 1
+        n_img = x.shape[1] - 1   # exclude class token
         r = int(n_img * ratio)
+
         if r > 0:
+            # 3. Single merge for the whole block
+            metric = self.norm1(x)
             merge, unmerge = bipartite_soft_matching(
-                x_normed, r=r, class_token=True
+                metric, r=r, class_token=True
             )
-            x_normed_m, _ = merge_wavg(merge, x_normed)
-            attn_out = self.attn1(x_normed_m)
-            attn_out = unmerge(attn_out)
-        else:
-            attn_out = self.attn1(x_normed)
-        x = x + attn_out
+            x_m, _ = merge_wavg(merge, x)
 
-        # 4. Cross-attention — unchanged
+            # 4. All sub-blocks on merged tokens
+            x_m = x_m + self.attn1(self.norm1(x_m))
+            x_m = x_m + self.attn2(self.norm2(x_m), text_states)
+
+            mlp_inputs = self.norm3(x_m)
+            if self.use_moe:
+                x_m = x_m + self.moe(mlp_inputs)
+            else:
+                x_m = x_m + self.mlp(mlp_inputs)
+
+            # 5. Unmerge back to original token count for skip / next block
+            return unmerge(x_m)
+
+        # No merging: original path
+        x = x + self.attn1(self.norm1(x))
         x = x + self.attn2(self.norm2(x), text_states)
-
-        # 5. FFN / MoE — unchanged
         mlp_inputs = self.norm3(x)
         if self.use_moe:
             x = x + self.moe(mlp_inputs)
         else:
             x = x + self.mlp(mlp_inputs)
-
         return x
 
     forward._original_forward = original_forward
@@ -84,21 +104,16 @@ def apply_patch(
     skip_last: int = 2,
     only_layers: Optional[list] = None,
 ) -> None:
-    """Patch a HunYuanDiTPlain model in-place.
+    """Patch a HunYuanDiTPlain model in-place (full-block ToMe-SD).
 
     model:       the DiT model (pipeline.model). Patches its `blocks` list.
     ratio:       fraction of (non-class) tokens to merge per patched block.
-                 0.5 means merge ~50%, giving roughly 1.6-1.8x speedup on
-                 self-attention while keeping ~all other compute unchanged.
-    skip_first:  number of leading blocks to leave unpatched (encode global
-                 structure; merging here hurts quality).
-    skip_last:   number of trailing blocks to leave unpatched (decode fine
-                 detail). The last 3 blocks also use MoE — patching them is
-                 fine but kept off by default for safety.
-    only_layers: optional explicit list of block indices to patch. Overrides
-                 skip_first/skip_last when provided.
+                 With full-block wrap, ratio=0.5 means ~50% of compute saved
+                 across attn1, attn2 (Q-side), and MLP/MoE.
+    skip_first:  number of leading blocks to leave unpatched.
+    skip_last:   number of trailing blocks to leave unpatched.
+    only_layers: optional explicit list of block indices to patch.
     """
-    # Locate blocks. HunYuanDiTPlain stores them as model.blocks.
     if not hasattr(model, "blocks"):
         raise AttributeError(
             "apply_patch expects model.blocks (HunYuanDiTPlain). "
@@ -113,11 +128,8 @@ def apply_patch(
         if i in only_layers:
             block._tome_ratio = ratio
             if not hasattr(block.forward, "_original_forward"):
-                # bind the patched forward to this instance
                 original = type(block).forward
                 patched = _make_patched_forward(original)
-                # bound method binding
-                import types
                 block.forward = types.MethodType(patched, block)
         else:
             block._tome_ratio = 0.0
@@ -127,6 +139,7 @@ def apply_patch(
         ratio=ratio,
         patched_layers=only_layers,
         n_blocks=n_blocks,
+        mode="full-block",
     )
 
 
@@ -136,8 +149,6 @@ def remove_patch(model) -> None:
         return
     for block in model.blocks:
         if hasattr(block.forward, "_original_forward"):
-            # rebind original method
-            import types
             block.forward = types.MethodType(
                 block.forward._original_forward, block
             )

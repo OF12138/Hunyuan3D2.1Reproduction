@@ -40,6 +40,28 @@ except Exception as e:
 from textureGenPipeline import Hunyuan3DPaintPipeline, Hunyuan3DPaintConfig
 
 
+def _run_with_optional_profile(fn, profile_path=None):
+    """Run fn() once, optionally under torch.profiler. Returns fn's result."""
+    if not profile_path:
+        return fn()
+
+    from torch.profiler import profile, ProfilerActivity, schedule
+    print(f"[profile] writing chrome trace to {profile_path}")
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        record_shapes=False,
+        with_stack=False,
+    ) as prof:
+        result = fn()
+    # Console summary: top CUDA-time kernels
+    print("\n[profile] top 25 ops by CUDA time:")
+    print(prof.key_averages().table(
+        sort_by="cuda_time_total", row_limit=25
+    ))
+    prof.export_chrome_trace(profile_path)
+    return result
+
+
 def stage1_shape(args, image):
     print("\n=== Stage 1: shape generation ===")
     pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(args.model_path)
@@ -54,7 +76,8 @@ def stage1_shape(args, image):
             skip_last=args.skip_last,
         )
         cfg = pipeline.model._tome_config
-        print(f"[ToMe-SD] patched {len(cfg['patched_layers'])}/{cfg['n_blocks']} "
+        print(f"[ToMe-SD] mode={cfg['mode']} "
+              f"patched {len(cfg['patched_layers'])}/{cfg['n_blocks']} "
               f"blocks: {cfg['patched_layers']}")
     else:
         print("[ToMe-SD] disabled (baseline)")
@@ -62,7 +85,12 @@ def stage1_shape(args, image):
     torch.cuda.reset_peak_memory_stats()
     torch.cuda.synchronize()
     t0 = time.time()
-    mesh = pipeline(image=image)[0]
+    profile_path = (f"{args.tag}_stage1_profile.json"
+                    if args.profile else None)
+    mesh = _run_with_optional_profile(
+        lambda: pipeline(image=image)[0],
+        profile_path=profile_path,
+    )
     torch.cuda.synchronize()
     elapsed = time.time() - t0
     peak = torch.cuda.max_memory_allocated() / 1e9
@@ -143,6 +171,11 @@ def main():
     p.add_argument("--ratio", type=float, default=0.5)
     p.add_argument("--skip_first", type=int, default=2)
     p.add_argument("--skip_last", type=int, default=2)
+
+    # Profiling
+    p.add_argument("--profile", action="store_true",
+                   help="run Stage 1 under torch.profiler; prints top kernels "
+                        "and writes <tag>_stage1_profile.json (chrome trace)")
 
     # Paint config (mirrors demo.py defaults)
     p.add_argument("--max_num_view", type=int, default=6)
