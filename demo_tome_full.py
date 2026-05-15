@@ -67,13 +67,14 @@ def stage1_shape(args, image):
     pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(args.model_path)
 
     if args.tome:
-        print(f"[ToMe-SD] ratio={args.ratio} skip_first={args.skip_first} "
-              f"skip_last={args.skip_last}")
+        print(f"[ToMe-SD] ratio={args.ratio} protect={args.protect_ratio} "
+              f"skip_first={args.skip_first} skip_last={args.skip_last}")
         apply_patch(
             pipeline.model,
             ratio=args.ratio,
             skip_first=args.skip_first,
             skip_last=args.skip_last,
+            protect_ratio=args.protect_ratio,
         )
         cfg = pipeline.model._tome_config
         print(f"[ToMe-SD] mode={cfg['mode']} "
@@ -152,7 +153,9 @@ def run(args):
 
     print("\n=== Summary ===")
     print(f"  tag:           {args.tag}")
-    print(f"  ToMe-SD:       {'on (ratio=%g)' % args.ratio if args.tome else 'off'}")
+    tome_str = (f"on (ratio={args.ratio}, protect={args.protect_ratio})"
+                if args.tome else "off")
+    print(f"  ToMe-SD:       {tome_str}")
     print(f"  Stage 1 time:  {t1:.2f} s   peak {m1:.2f} GB")
     print(f"  Stage 2 time:  {t2:.2f} s   peak {m2:.2f} GB")
     print(f"  Total time:    {t1 + t2:.2f} s")
@@ -169,6 +172,8 @@ def main():
     p.add_argument("--tome", dest="tome", action="store_true", default=True)
     p.add_argument("--no-tome", dest="tome", action="store_false")
     p.add_argument("--ratio", type=float, default=0.5)
+    p.add_argument("--protect_ratio", type=float, default=0.0,
+                   help="fraction of tokens protected by saliency (0=vanilla, 0.3=recommended)")
     p.add_argument("--skip_first", type=int, default=2)
     p.add_argument("--skip_last", type=int, default=2)
 

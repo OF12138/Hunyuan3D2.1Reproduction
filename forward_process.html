@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hunyuan3D-2.1 Stage 1 — Forward Process</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; padding: 24px; }
+  h1 { text-align: center; font-size: 1.5rem; color: #58a6ff; margin-bottom: 4px; }
+  .subtitle { text-align: center; font-size: 0.82rem; color: #8b949e; margin-bottom: 30px; }
+
+  /* ── Step cards ──────────────────────────────── */
+  .steps { display: flex; flex-direction: column; max-width: 900px; margin: 0 auto; gap: 0; }
+
+  .step { display: flex; gap: 0; }
+  .step-gutter { display: flex; flex-direction: column; align-items: center; width: 52px; flex-shrink: 0; }
+  .step-num { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+              font-weight: 700; font-size: 0.85rem; flex-shrink: 0; }
+  .step-line { width: 2px; flex-grow: 1; min-height: 20px; }
+  .step-body { flex: 1; padding-bottom: 24px; padding-left: 12px; }
+
+  .card { border-radius: 8px; padding: 14px 16px; }
+  .card-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+  .card-title { font-weight: 700; font-size: 0.95rem; }
+  .card-where { font-size: 0.72rem; color: #8b949e; }
+  .card-body { font-size: 0.82rem; line-height: 1.6; }
+
+  /* Tensor flow row */
+  .tensor-flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+  .t  { font-family: monospace; font-size: 0.8rem; padding: 3px 9px; border-radius: 4px; white-space: nowrap; }
+  .t-in  { background: rgba(79,192,255,0.12); border: 1px solid rgba(79,192,255,0.35); color: #79c0ff; }
+  .t-out { background: rgba(86,211,100,0.12); border: 1px solid rgba(86,211,100,0.35); color: #56d364; }
+  .t-mid { background: rgba(163,113,247,0.12); border: 1px solid rgba(163,113,247,0.35); color: #a371f7; }
+  .arrow-small { color: #484f58; font-size: 1rem; }
+
+  /* Code block */
+  pre { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px 14px;
+        font-size: 0.75rem; line-height: 1.55; overflow-x: auto; margin: 8px 0; color: #e6edf3; }
+  .kw  { color: #ff7b72; }
+  .fn  { color: #d2a8ff; }
+  .cm  { color: #8b949e; }
+  .st  { color: #a5d6ff; }
+  .nm  { color: #79c0ff; }
+
+  /* Note box */
+  .note { background: #161b22; border-left: 3px solid #8b949e; border-radius: 0 6px 6px 0; padding: 8px 12px; font-size: 0.78rem; color: #8b949e; margin: 8px 0; }
+  .note.info    { border-color: #388bfd; color: #a0c4ff; }
+  .note.warn    { border-color: #d29922; color: #e3b341; }
+  .note.insight { border-color: #3fb950; color: #7ee787; }
+
+  /* Color themes */
+  .phase-input  { background:#12191f; border:1px solid #1f6feb; }
+  .phase-cond   { background:#111820; border:1px solid #388bfd; }
+  .phase-embed  { background:#12201a; border:1px solid #238636; }
+  .phase-loop   { background:#0f1b10; border:1px solid #2ea043; }
+  .phase-block  { background:#0e1a0e; border:1px solid #206e27; }
+  .phase-cfg    { background:#1a1320; border:1px solid #8957e5; }
+  .phase-vae    { background:#18142a; border:1px solid #6e40c9; }
+  .phase-mc     { background:#1a1626; border:1px solid #a371f7; }
+  .phase-out    { background:#1c1710; border:1px solid #d29922; }
+
+  .num-input  { background:#1f6feb; color:#fff; }
+  .num-cond   { background:#388bfd; color:#fff; }
+  .num-embed  { background:#238636; color:#fff; }
+  .num-loop   { background:#2ea043; color:#fff; }
+  .num-block  { background:#1a7f37; color:#fff; }
+  .num-cfg    { background:#8957e5; color:#fff; }
+  .num-vae    { background:#6e40c9; color:#fff; }
+  .num-mc     { background:#a371f7; color:#fff; }
+  .num-out    { background:#d29922; color:#fff; }
+
+  .line-input  { background:#1f6feb; }
+  .line-cond   { background:#388bfd; }
+  .line-embed  { background:#238636; }
+  .line-loop   { background:#2ea043; }
+  .line-block  { background:#206e27; }
+  .line-cfg    { background:#8957e5; }
+  .line-vae    { background:#6e40c9; }
+  .line-mc     { background:#a371f7; }
+  .line-out    { background:#d29922; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 0.78rem; margin: 8px 0; }
+  th { background: #161b22; color: #8b949e; text-align: left; padding: 5px 8px; border: 1px solid #30363d; }
+  td { padding: 4px 8px; border: 1px solid #30363d; font-family: monospace; }
+  tr:nth-child(even) td { background: #0d1117; }
+  tr:nth-child(odd) td { background: #111418; }
+  .td-key { color: #e6edf3; font-weight: 600; }
+  .td-in  { color: #79c0ff; }
+  .td-out { color: #56d364; }
+  .td-note { color: #8b949e; font-family: 'Segoe UI', Arial, sans-serif; }
+</style>
+</head>
+<body>
+
+<h1>Hunyuan3D-2.1 Stage 1 · Forward Process</h1>
+<p class="subtitle">Step-by-step walkthrough from a single RGBA image to an untextured mesh, with tensor shapes at every stage</p>
+
+<div class="steps">
+
+<!-- ═══════════════════════════════════════════════════ STEP 1 -->
+<div class="step">
+  <div class="step-gutter">
+    <div class="step-num num-input">1</div>
+    <div class="step-line line-input"></div>
+  </div>
+  <div class="step-body">
+    <div class="card phase-input">
+      <div class="card-header">
+        <div class="card-title">Input Image Preparation</div>
+        <div class="card-where">pipelines.py → prepare_image() → image_processor()</div>
+      </div>
+      <div class="card-body">
+        <p>The user provides a single image (RGBA preferred). The background remover converts RGB→RGBA by segmenting the object.
+        The image processor normalises pixel values to [−1, 1] and returns them as a tensor.</p>
+        <div class="tensor-flow">
+          <span class="t t-in">PIL Image  H×W (arbitrary)</span>
+          <span class="arrow-small">→</span>
+          <span class="t t-mid">BackgroundRemover</span>
+          <span class="arrow-small">→</span>
+          <span class="t t-mid">resize, center-crop, normalize</span>
+          <span class="arrow-small">→</span>
+          <span class="t t-out">[B, 4, 224, 224]  float32, ∈[−1,1]</span>
+        </div>
+        <div class="note info">The alpha channel carries the background mask. Images already RGBA skip background removal.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ STEP 2 -->
+<div class="step">
+  <div class="step-gutter">
+    <div class="step-num num-cond">2</div>
+    <div class="step-line line-cond"></div>
+  </div>
+  <div class="step-body">
+    <div class="card phase-cond">
+      <div class="card-header">
+        <div class="card-title">Image Encoding (Conditioner)</div>
+        <div class="card-where">conditioner.py → DualImageEncoder → CLIP + DINOv2</div>
+      </div>
+      <div class="card-body">
+        <p>The frozen dual encoder produces two sets of patch tokens that will condition the DiT.
+        Both encoders use ViT-style patch-based processing: divide 224×224 into 14×14-pixel patches → 16×16 = 256 patches, plus 1 [CLS] token.</p>
+
+        <table>
+          <tr><th>Encoder</th><th>Input</th><th>Output</th><th>Role in DiT</th></tr>
+          <tr>
+            <td class="td-key">CLIP ViT-L/14</td>
+            <td class="td-in">[B, 3, 224, 224]</td>
+            <td class="td-out">[B, 257, 1024]</td>
+            <td class="td-note">cond['main'] — cross-attn keys/values; pooled to build c</td>
+          </tr>
+          <tr>
+            <td class="td-key">DINOv2-Giant</td>
+            <td class="td-in">[B, 3, 224, 224]</td>
+            <td class="td-out">[B, 257, 1536]</td>
+            <td class="td-note">cond['additional'] — projected &amp; appended during dual-CFG</td>
+          </tr>
+        </table>
+
+        <p style="margin-top:6px">For <strong>classifier-free guidance</strong> the encoder is also called with a zero (unconditional) embedding.
+        The two outputs are concatenated → the DiT processes a batch of 2× (or 3× for dual guidance) the user batch size internally.</p>
+
+        <div class="tensor-flow">
+          <span class="t t-out">cond['main'] [2B, 257, 1024]</span>
+          <span class="t t-out">cond['additional'] [2B, 257, 1536]</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ STEP 3 -->
+<div class="step">
+  <div class="step-gutter">
+    <div class="step-num num-embed">3</div>
+    <div class="step-line line-embed"></div>
+  </div>
+  <div class="step-body">
+    <div class="card phase-embed">
+      <div class="card-header">
+        <div class="card-title">Latent Initialization</div>
+        <div class="card-where">pipelines.py → prepare_latents()</div>
+      </div>
+      <div class="card-body">
+        <p>The 3D shape latent space is a set of <strong>4096 tokens</strong>, each with <strong>4 channels</strong> — the "VecSet" representation.
+        Sampling starts from pure Gaussian noise at t = T = 1.</p>
+        <pre>
+<span class="nm">shape</span> = (<span class="nm">batch_size</span>, *<span class="nm">vae</span>.latent_shape)  <span class="cm"># vae.latent_shape = (4096, 4)</span>
+<span class="nm">latents</span> = <span class="fn">randn_tensor</span>(shape)              <span class="cm"># [B, 4096, 4]  standard Gaussian</span>
+<span class="nm">latents</span> *= scheduler.init_noise_sigma      <span class="cm"># scale by scheduler (usually 1.0)</span>
+        </pre>
+        <div class="tensor-flow">
+          <span class="t t-out">z_T  [B, 4096, 4]  ~ N(0,1)</span>
+        </div>
+        <div class="note insight">The 4096 tokens do <em>not</em> correspond to a regular grid. They are unordered latent points in 3D-shape space — more tokens are implicitly assigned to edges/corners by the VAE's importance sampling during training.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ STEP 4 -->
+<div class="step">
+  <div class="step-gutter">
+    <div class="step-num num-loop">4</div>
+    <div class="step-line line-loop"></div>
+  </div>
+  <div class="step-body">
+    <div class="card phase-loop">
+      <div class="card-header">
+        <div class="card-title">Flow-Matching ODE Loop  (50 steps)</div>
+        <div class="card-where">pipelines.py → __call__() → for t in timesteps</div>
+      </div>
+      <div class="card-body">
+        <p>Hunyuan3D uses <strong>rectified flow matching</strong>.  The ODE integrates a learned velocity field
+        v_θ from z_T back to z_0. At each step:</p>
+        <pre>
+<span class="kw">for</span> i, t <span class="kw">in</span> <span class="fn">enumerate</span>(timesteps):            <span class="cm"># t counts down 1000 → 0</span>
+    latent_input = <span class="fn">cat</span>([latents] * <span class="nm">2</span>)        <span class="cm"># CFG: [2B, 4096, 4]</span>
+    noise_pred = model(latent_input, t, cond)   <span class="cm"># DiT forward pass (below)</span>
+
+    <span class="cm"># CFG combination</span>
+    v_cond, v_uncond = noise_pred.chunk(<span class="nm">2</span>)
+    v = v_uncond + guidance_scale * (v_cond - v_uncond)   <span class="cm"># [B, 4096, 4]</span>
+
+    latents = scheduler.step(v, t, latents).prev_sample    <span class="cm"># [B, 4096, 4]</span>
+        </pre>
+        <div class="note info">The scheduler performs: z_{t-1} = z_t − v · Δt (Euler step) or a higher-order method. guidance_scale defaults to 7.5.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ STEP 5 -->
+<div class="step">
+  <div class="step-gutter">
+    <div class="step-num num-block">5</div>
+    <div class="step-line line-block"></div>
+  </div>
+  <div class="step-body">
+    <div class="card phase-block">
+      <div class="card-header">
+        <div class="card-title">DiT Forward Pass (inside each ODE step)</div>
+        <div class="card-where">hunyuandit.py → HunYuanDiTPlain.forward()</div>
+      </div>
+      <div class="card-body">
+
+        <p><strong>5a. Embed input latent and timestep</strong></p>
+        <pre>
+<span class="nm">x</span> = self.x_embedder(<span class="nm">x</span>)          <span class="cm"># Linear(4 → 1024):   [2B, 4096, 4] → [2B, 4096, 1024]</span>
+
+<span class="nm">t_emb</span> = self.t_embedder(<span class="nm">t</span>)        <span class="cm"># sinusoidal + MLP:   [2B] → [2B, 1, 1024]</span>
+
+<span class="nm">extra</span> = self.pooler(cond)          <span class="cm"># AttentionPool over 257 CLIP tokens: [2B, 257,1024]→[2B,1024]</span>
+<span class="nm">c</span> = t_emb + self.extra_embedder(extra)  <span class="cm"># MLP(1024→4096→1024):  [2B, 1, 1024]</span>
+        </pre>
+        <div class="tensor-flow">
+          <span class="t t-in">x [2B, 4096, 1024]</span>
+          <span class="t t-in">c [2B, 1, 1024]</span>
+        </div>
+
+        <p style="margin-top:10px"><strong>5b. Prepend conditioning token</strong></p>
+        <pre>
+x = <span class="fn">torch.cat</span>([c, x], dim=<span class="nm">1</span>)     <span class="cm"># [2B, 4097, 1024]  token 0 = 'class' token</span>
+        </pre>
+        <div class="tensor-flow">
+          <span class="t t-out">x [2B, 4097, 1024]</span>
+        </div>
+        <div class="note info">Token 0 carries timestep and image-pooling conditioning. Tokens 1–4096 are the 3D latent tokens.</div>
+
+        <p style="margin-top:10px"><strong>5c. U-Net transformer blocks</strong></p>
+        <pre>
+skip_value_list = []
+<span class="kw">for</span> layer, block <span class="kw">in</span> <span class="fn">enumerate</span>(self.blocks):    <span class="cm"># 21 blocks total</span>
+    skip_value = <span class="kw">None if</span> layer &lt;= <span class="nm">10</span> <span class="kw">else</span> skip_value_list.pop()
+    x = block(x, c, cond, skip_value=skip_value)  <span class="cm"># [2B, 4097, 1024] → [2B, 4097, 1024]</span>
+    <span class="kw">if</span> layer &lt; <span class="nm">10</span>:
+        skip_value_list.append(x)              <span class="cm"># encoder saves output for symmetric decoder block</span>
+        </pre>
+
+        <!-- Block structure table -->
+        <table style="margin-top:6px">
+          <tr><th>Block range</th><th>Role</th><th>skip_linear</th><th>FFN type</th><th>I/O shape</th></tr>
+          <tr><td class="td-in">0 – 10</td><td>Encoder</td><td class="td-note">None</td><td class="td-note">MLP (1024→4096→1024)</td><td class="td-out">[2B, 4097, 1024]</td></tr>
+          <tr><td class="td-in">11 – 14</td><td>Decoder</td><td class="td-note">Linear(2048→1024)</td><td class="td-note">MLP (1024→4096→1024)</td><td class="td-out">[2B, 4097, 1024]</td></tr>
+          <tr><td class="td-in">15 – 20</td><td>Decoder</td><td class="td-note">Linear(2048→1024)</td><td class="td-note"><strong>MoE</strong> (8 experts, top-2)</td><td class="td-out">[2B, 4097, 1024]</td></tr>
+        </table>
+
+        <p style="margin-top:12px"><strong>5d. Inside each HunYuanDiTBlock</strong></p>
+        <pre>
+<span class="cm"># --- Decoder blocks only (layers 11-20) ---</span>
+<span class="kw">if</span> self.skip_linear <span class="kw">is not None</span>:
+    cat = torch.cat([skip_value, x], dim=-<span class="nm">1</span>)  <span class="cm"># [2B, 4097, 2048]  (concat over channel)</span>
+    x = self.skip_linear(cat)                  <span class="cm"># Linear(2048→1024): [2B, 4097, 1024]</span>
+    x = self.skip_norm(x)
+
+<span class="cm"># --- All blocks ---</span>
+x = x + self.attn1(self.norm1(x))             <span class="cm"># Self-Attn: Q=K=V from x  [2B, 4097, 1024]</span>
+                                               <span class="cm">#   heads=16, head_dim=64, scaled dot-product attn</span>
+x = x + self.attn2(self.norm2(x), text_states) <span class="cm"># Cross-Attn: Q from x, K/V from CLIP</span>
+                                               <span class="cm">#   Q [2B, 4097, 1024] × KV [2B, 257, 1024]</span>
+mlp_in = self.norm3(x)
+x = x + self.moe(mlp_in)   <span class="cm"># MoE: 8 experts (each: 1024→4096→1024), top-2 gating</span>
+<span class="cm"># OR:</span>
+x = x + self.mlp(mlp_in)   <span class="cm"># MLP: 1024→4096→1024  (GELU)</span>
+        </pre>
+
+        <div class="note insight">
+          Self-Attention note: all 4097 tokens attend to all other 4097 tokens.
+          The class token (pos 0) mixes timestep/image conditioning into the latent stream at every block.
+        </div>
+        <div class="note info">
+          Cross-Attention note: 4097 latent tokens form Q, while the 257 CLIP patch tokens form K and V.
+          This is how the image is "read" by the DiT — not as additional latent tokens, but as external memory.
+        </div>
+
+        <p style="margin-top:12px"><strong>5e. FinalLayer</strong></p>
+        <pre>
+x = self.final_layer.norm_final(x)   <span class="cm"># [2B, 4097, 1024]</span>
+x = x[:, <span class="nm">1</span>:]                         <span class="cm"># drop class token  →  [2B, 4096, 1024]</span>
+x = self.final_layer.linear(x)       <span class="cm"># Linear(1024→4):   [2B, 4096, 4]</span>
+<span class="kw">return</span> x                              <span class="cm"># velocity prediction  v_θ(z_t, t, cond)</span>
+        </pre>
+        <div class="tensor-flow">
+          <span class="t t-out">v_θ  [2B, 4096, 4]  (noise/velocity prediction)</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ STEP 6 -->
+<div class="step">
+  <div class="step-gutter">
+    <div class="step-num num-cfg">6</div>
+    <div class="step-line line-cfg"></div>
+  </div>
+  <div class="step-body">
+    <div class="card phase-cfg">
+      <div class="card-header">
+        <div class="card-title">Classifier-Free Guidance + ODE Update</div>
+        <div class="card-where">pipelines.py → __call__() (inside the 50-step loop)</div>
+      </div>
+      <div class="card-body">
+        <pre>
+v_cond, v_uncond = noise_pred.chunk(<span class="nm">2</span>)          <span class="cm"># each [B, 4096, 4]</span>
+v = v_uncond + guidance_scale * (v_cond - v_uncond)  <span class="cm"># [B, 4096, 4],  scale=7.5</span>
+
+latents = scheduler.step(v, t, latents).prev_sample  <span class="cm"># z_{t-1} = z_t - v·Δt</span>
+        </pre>
+        <div class="tensor-flow">
+          <span class="t t-in">z_t [B, 4096, 4]</span>
+          <span class="t t-in">v [B, 4096, 4]</span>
+          <span class="arrow-small">→ ODE step →</span>
+          <span class="t t-out">z_{t-1} [B, 4096, 4]</span>
+        </div>
+        <p style="margin-top:6px">This loop runs <strong>50 times</strong>. After the loop, z₀ is the clean 3D latent.</p>
+        <div class="note warn">For dual guidance (dual_guidance=True), the DiT runs on 3× batch (cond, partial-uncond, full-uncond) and a more complex combination formula is used.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ STEP 7 -->
+<div class="step">
+  <div class="step-gutter">
+    <div class="step-num num-vae">7</div>
+    <div class="step-line line-vae"></div>
+  </div>
+  <div class="step-body">
+    <div class="card phase-vae">
+      <div class="card-header">
+        <div class="card-title">ShapeVAE Decode — Latents to Feature Field</div>
+        <div class="card-where">model.py → ShapeVAE.forward() → post_kl + Transformer</div>
+      </div>
+      <div class="card-body">
+        <p>The clean latent z₀ is first de-scaled (divided by the VAE's learned scale factor), then decoded by two sub-networks:</p>
+        <pre>
+latents = <span class="nm">1.0</span> / vae.scale_factor * latents    <span class="cm"># [B, 4096, 4]  (scale_factor learned during VAE training)</span>
+
+<span class="cm"># 1. Project latent channels to model width</span>
+latents = vae.post_kl(latents)                  <span class="cm"># Linear(4 → 1024): [B, 4096, 1024]</span>
+
+<span class="cm"># 2. Refine with a self-attention Transformer</span>
+latents = vae.transformer(latents)              <span class="cm"># 8 ResidualAttentionBlocks, width=1024, heads=16</span>
+                                               <span class="cm"># output: [B, 4096, 1024]  — richer per-token geometry context</span>
+        </pre>
+        <div class="tensor-flow">
+          <span class="t t-in">z₀ [B, 4096, 4]</span>
+          <span class="arrow-small">→</span>
+          <span class="t t-out">latents [B, 4096, 1024]  (feature vectors, one per vecset token)</span>
+        </div>
+        <div class="note insight">These 4096 feature vectors are the "memory" that the geo_decoder will query to reconstruct the SDF at any 3D point. Each vector implicitly encodes the local geometry around some region of the 3D shape.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ STEP 8 -->
+<div class="step">
+  <div class="step-gutter">
+    <div class="step-num num-vae">8</div>
+    <div class="step-line line-mc"></div>
+  </div>
+  <div class="step-body">
+    <div class="card phase-vae">
+      <div class="card-header">
+        <div class="card-title">Volume Decoding — SDF at Every Grid Point</div>
+        <div class="card-where">volume_decoders.py → VanillaVolumeDecoder + CrossAttentionDecoder</div>
+      </div>
+      <div class="card-body">
+        <p>The volume decoder builds a dense 3D query grid and asks the geo_decoder: "what is the SDF value at each grid point?"</p>
+
+        <p style="margin-top:8px"><strong>8a. Generate query grid</strong></p>
+        <pre>
+bbox = [-<span class="nm">1.01</span>, -<span class="nm">1.01</span>, -<span class="nm">1.01</span>, <span class="nm">1.01</span>, <span class="nm">1.01</span>, <span class="nm">1.01</span>]
+<span class="nm">octree_resolution</span> = <span class="nm">384</span>
+<span class="cm"># np.linspace(-1.01, 1.01, 385) per axis</span>
+xyz_samples: shape = [<span class="nm">385</span>³,  <span class="nm">3</span>]  =  [<span class="nm">57_289_025</span>, <span class="nm">3</span>]   <span class="cm"># 57.3M query points</span>
+        </pre>
+
+        <p style="margin-top:8px"><strong>8b. Chunked geo_decoder inference (chunk=8000)</strong></p>
+        <pre>
+<span class="kw">for</span> start <span class="kw">in</span> <span class="fn">range</span>(<span class="nm">0</span>, <span class="nm">57_289_025</span>, <span class="nm">8000</span>):   <span class="cm"># ~7162 iterations</span>
+    chunk = xyz_samples[start : start+<span class="nm">8000</span>]   <span class="cm"># [8000, 3]</span>
+    chunk = repeat(chunk, <span class="st">"p c -> b p c"</span>, b=B)  <span class="cm"># [B, 8000, 3]</span>
+
+    <span class="cm"># Fourier positional embedding of 3D coordinates</span>
+    pe = fourier_embedder(chunk)                <span class="cm"># 8 freqs, sin+cos+input  →  [B, 8000, 51]</span>
+                                               <span class="cm"># 3 × (8×2 + 1) = 51 dims</span>
+
+    <span class="cm"># Project to model width and cross-attend to latents</span>
+    q = query_proj(pe)                          <span class="cm"># Linear(51→1024):  [B, 8000, 1024]</span>
+    feat = cross_attn_decoder(q, latents)       <span class="cm"># Q=[B,8000,1024]  KV=[B,4096,1024]  →  [B, 8000, 1024]</span>
+    logits = output_proj(feat)                  <span class="cm"># Linear(1024→1):   [B, 8000, 1]</span>
+    batch_logits.append(logits)
+
+grid_logits = cat(batch_logits, dim=<span class="nm">1</span>)        <span class="cm"># [B, 57_289_025, 1]</span>
+grid_logits = grid_logits.view(B, <span class="nm">385</span>, <span class="nm">385</span>, <span class="nm">385</span>)  <span class="cm"># [B, 385, 385, 385]  float32</span>
+        </pre>
+
+        <table>
+          <tr><th>Tensor</th><th>Shape</th><th>Description</th></tr>
+          <tr><td class="td-key">chunk (xyz)</td><td class="td-in">[B, 8000, 3]</td><td class="td-note">3D coordinates of query points</td></tr>
+          <tr><td class="td-key">Fourier PE</td><td class="td-in">[B, 8000, 51]</td><td class="td-note">sin/cos positional encoding of xyz</td></tr>
+          <tr><td class="td-key">Query embed</td><td class="td-mid">[B, 8000, 1024]</td><td class="td-note">projected query</td></tr>
+          <tr><td class="td-key">Cross-attn output</td><td class="td-mid">[B, 8000, 1024]</td><td class="td-note">each query enriched by latents</td></tr>
+          <tr><td class="td-key">SDF logit</td><td class="td-out">[B, 8000, 1]</td><td class="td-note">signed distance value per point</td></tr>
+          <tr><td class="td-key">Full SDF grid</td><td class="td-out">[B, 385, 385, 385]</td><td class="td-note">the complete 3D occupancy field</td></tr>
+        </table>
+
+        <div class="note warn">Volume decoding is the slowest step: ~7162 cross-attention calls × [B, 8000, 1024] queries × [B, 4096, 1024] keys. This is why the profiler shows ~28–31 s here.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ STEP 9 -->
+<div class="step">
+  <div class="step-gutter">
+    <div class="step-num num-mc">9</div>
+    <div class="step-line line-out"></div>
+  </div>
+  <div class="step-body">
+    <div class="card phase-mc">
+      <div class="card-header">
+        <div class="card-title">Surface Extraction — Marching Cubes</div>
+        <div class="card-where">surface_extractors.py → MCSurfaceExtractor → skimage.measure.marching_cubes</div>
+      </div>
+      <div class="card-body">
+        <p>The SDF grid's zero-level-set (where values cross from negative to positive) defines the object surface.
+        Marching cubes extracts this as a triangle mesh.</p>
+        <pre>
+vertices, faces = marching_cubes(
+    grid_logit,            <span class="cm"># [385, 385, 385]  float32 SDF</span>
+    level=-<span class="nm">1</span>/<span class="nm">512</span>,           <span class="cm"># iso-value (slightly negative to get solid exterior)</span>
+    spacing=(<span class="nm">2.02</span>/<span class="nm">384</span>,) * <span class="nm">3</span>  <span class="cm"># physical spacing of grid voxels</span>
+)                          <span class="cm"># vertices [V, 3],  faces [F, 3]</span>
+        </pre>
+        <div class="tensor-flow">
+          <span class="t t-in">[385, 385, 385] SDF</span>
+          <span class="arrow-small">→</span>
+          <span class="t t-out">vertices [V, 3]  (float32, world coords)</span>
+          <span class="t t-out">faces [F, 3]  (int, triangle indices)</span>
+        </div>
+        <div class="note insight">V and F depend on shape complexity — typically 30k–150k vertices, 60k–300k faces for the default 384³ resolution.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════ STEP 10 -->
+<div class="step">
+  <div class="step-gutter">
+    <div class="step-num num-out">10</div>
+    <div class="step-line" style="background:transparent"></div>
+  </div>
+  <div class="step-body">
+    <div class="card phase-out">
+      <div class="card-header">
+        <div class="card-title">Output — trimesh.Trimesh (untextured GLB)</div>
+        <div class="card-where">pipelines.py → export_to_trimesh() → mesh.export()</div>
+      </div>
+      <div class="card-body">
+        <pre>
+mesh = trimesh.Trimesh(mesh_v, mesh_f)   <span class="cm"># wrap raw arrays</span>
+mesh.export(<span class="st">"output.glb"</span>)               <span class="cm"># save as binary glTF</span>
+        </pre>
+        <p>The result is an untextured 3D mesh in world space, normalized to fit inside [−1,1]³. Stage 2 (PBR texture generation) reads this GLB and adds albedo/metallic-roughness/normal maps.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /steps -->
+
+<!-- ── Complete Tensor Shape Summary ───────────────────── -->
+<div style="max-width:900px; margin:32px auto 0">
+  <h2 style="font-size:1rem; color:#58a6ff; margin-bottom:10px">Complete Tensor Shape Summary</h2>
+  <table>
+    <tr><th>#</th><th>Stage</th><th>Tensor / Variable</th><th>Shape</th><th>Notes</th></tr>
+    <tr><td>1</td><td>Input</td><td class="td-key">image (PIL)</td><td class="td-in">H × W × 4</td><td class="td-note">arbitrary resolution RGBA</td></tr>
+    <tr><td>2</td><td>Preprocessed</td><td class="td-key">image tensor</td><td class="td-in">[B, 4, 224, 224]</td><td class="td-note">normalized to [−1,1]</td></tr>
+    <tr><td>3</td><td>CLIP features</td><td class="td-key">cond['main']</td><td class="td-mid">[2B, 257, 1024]</td><td class="td-note">2× for CFG; 257 = 256 patches + CLS</td></tr>
+    <tr><td>4</td><td>DINO features</td><td class="td-key">cond['additional']</td><td class="td-mid">[2B, 257, 1536]</td><td class="td-note">DINOv2-Giant hidden size = 1536</td></tr>
+    <tr><td>5</td><td>Latent noise</td><td class="td-key">z_T</td><td class="td-in">[B, 4096, 4]</td><td class="td-note">Gaussian noise; shape = vae.latent_shape</td></tr>
+    <tr><td>6</td><td>DiT input (CFG)</td><td class="td-key">latent_model_input</td><td class="td-mid">[2B, 4096, 4]</td><td class="td-note">duplicated for cond/uncond</td></tr>
+    <tr><td>7</td><td>DiT: after x_embedder</td><td class="td-key">x</td><td class="td-mid">[2B, 4096, 1024]</td><td class="td-note">Linear(4 → 1024)</td></tr>
+    <tr><td>8</td><td>DiT: timestep emb</td><td class="td-key">t_emb</td><td class="td-mid">[2B, 1, 1024]</td><td class="td-note">sinusoidal → MLP → unsqueeze</td></tr>
+    <tr><td>9</td><td>DiT: image pool emb</td><td class="td-key">c</td><td class="td-mid">[2B, 1, 1024]</td><td class="td-note">AttentionPool(cond) + MLP + t_emb</td></tr>
+    <tr><td>10</td><td>DiT: after prepend</td><td class="td-key">x</td><td class="td-mid">[2B, 4097, 1024]</td><td class="td-note">cat([c, x], dim=1)</td></tr>
+    <tr><td>11</td><td>DiT: each block I/O</td><td class="td-key">x</td><td class="td-mid">[2B, 4097, 1024]</td><td class="td-note">preserved through all 21 blocks</td></tr>
+    <tr><td>12</td><td>DiT: self-attn Q/K/V</td><td class="td-key">Q = K = V</td><td class="td-mid">[2B, 16, 4097, 64]</td><td class="td-note">heads=16, head_dim=64</td></tr>
+    <tr><td>13</td><td>DiT: cross-attn</td><td class="td-key">Q × [K,V]</td><td class="td-mid">[2B, 16, 4097, 64] × [2B, 16, 257, 64]</td><td class="td-note">Q from latent, K/V from CLIP</td></tr>
+    <tr><td>14</td><td>DiT: skip concat</td><td class="td-key">skip input</td><td class="td-mid">[2B, 4097, 2048]</td><td class="td-note">cat([skip_value, x], dim=-1) → Linear(2048→1024)</td></tr>
+    <tr><td>15</td><td>DiT: final layer out</td><td class="td-key">v_θ</td><td class="td-out">[2B, 4096, 4]</td><td class="td-note">drop token 0, Linear(1024→4)</td></tr>
+    <tr><td>16</td><td>After CFG combine</td><td class="td-key">v</td><td class="td-out">[B, 4096, 4]</td><td class="td-note">CFG: v_u + scale×(v_c − v_u)</td></tr>
+    <tr><td>17</td><td>After ODE step</td><td class="td-key">z_{t-1}</td><td class="td-out">[B, 4096, 4]</td><td class="td-note">updated latent; repeat 50×</td></tr>
+    <tr><td>18</td><td>Clean latent z₀</td><td class="td-key">latents</td><td class="td-out">[B, 4096, 4]</td><td class="td-note">final denoised latent</td></tr>
+    <tr><td>19</td><td>VAE: post_kl</td><td class="td-key">latents</td><td class="td-mid">[B, 4096, 1024]</td><td class="td-note">Linear(4 → 1024)</td></tr>
+    <tr><td>20</td><td>VAE: Transformer</td><td class="td-key">latents</td><td class="td-mid">[B, 4096, 1024]</td><td class="td-note">8-layer self-attn transformer</td></tr>
+    <tr><td>21</td><td>Vol decode: Fourier PE</td><td class="td-key">pe (per chunk)</td><td class="td-mid">[B, 8000, 51]</td><td class="td-note">3D coord → 3×(8×2+1)=51 dims</td></tr>
+    <tr><td>22</td><td>Vol decode: cross-attn</td><td class="td-key">Q×KV</td><td class="td-mid">[B, 8000, 1024] × [B, 4096, 1024]</td><td class="td-note">queries=grid pts, keys=latents</td></tr>
+    <tr><td>23</td><td>Vol decode: SDF logit</td><td class="td-key">logit (per chunk)</td><td class="td-mid">[B, 8000, 1]</td><td class="td-note">Linear(1024→1)</td></tr>
+    <tr><td>24</td><td>Full SDF grid</td><td class="td-key">grid_logits</td><td class="td-out">[B, 385, 385, 385]</td><td class="td-note">57.3M points assembled</td></tr>
+    <tr><td>25</td><td>Marching cubes</td><td class="td-key">vertices / faces</td><td class="td-out">[V, 3]  /  [F, 3]</td><td class="td-note">V,F depend on shape complexity</td></tr>
+  </table>
+</div>
+
+<p style="text-align:center; margin-top:20px; font-size:0.72rem; color:#484f58">
+  B = user batch size (typically 1).  2B appears when CFG is active (guidance_scale > 0).
+  All tensors are float16 on GPU except grid_logits (float32) and index tensors (int32/int64).
+</p>
+
+</body>
+</html>

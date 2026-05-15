@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hunyuan3D-2.1 Stage 1 — Network Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #0d1117; color: #c9d1d9; min-height: 100vh; padding: 24px; }
+  h1 { text-align: center; font-size: 1.5rem; color: #58a6ff; margin-bottom: 6px; }
+  .subtitle { text-align: center; font-size: 0.82rem; color: #8b949e; margin-bottom: 28px; }
+
+  /* ── Layout ─────────────────────────────────────── */
+  .pipeline { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .section  { display: flex; flex-direction: column; align-items: center; width: 100%; }
+
+  /* ── Connector arrow ───────────────────────────── */
+  .arrow { display: flex; flex-direction: column; align-items: center; margin: 0; }
+  .arrow-line { width: 2px; background: #30363d; flex-grow: 1; min-height: 20px; }
+  .arrow-label { font-size: 0.72rem; color: #8b949e; background: #161b22; padding: 1px 6px; border: 1px solid #30363d; border-radius: 4px; white-space: nowrap; }
+  .arrow-head { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 10px solid #30363d; }
+
+  /* ── Generic box ───────────────────────────────── */
+  .box { border-radius: 8px; padding: 10px 16px; text-align: center; position: relative; }
+  .box-title { font-weight: 700; font-size: 0.88rem; }
+  .box-sub   { font-size: 0.72rem; margin-top: 3px; color: #8b949e; }
+  .dim       { display: inline-block; font-family: monospace; font-size: 0.75rem;
+                background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.12);
+                border-radius: 4px; padding: 1px 6px; margin: 2px 2px; }
+  .dim-in  { color: #79c0ff; }
+  .dim-out { color: #56d364; }
+
+  /* ── Color themes per component ───────────────── */
+  .c-input    { background:#1b2634; border:1px solid #1f6feb; }
+  .c-cond     { background:#1b2228; border:1px solid #388bfd; }
+  .c-clip     { background:#161f2a; border:1px solid #1f6feb; }
+  .c-dino     { background:#1a2030; border:1px solid #2d7dcc; }
+  .c-sampler  { background:#1a2420; border:1px solid #238636; }
+  .c-dit      { background:#182018; border:1px solid #2ea043; }
+  .c-block    { background:#111c12; border:1px solid #206e27; }
+  .c-blockmoe { background:#0f1d10; border:1px solid #3fb950; }
+  .c-skip     { background:#1a2010; border:1px solid #3a6e1f; }
+  .c-final    { background:#131d11; border:1px solid #238636; }
+  .c-vae      { background:#1e1a28; border:1px solid #8957e5; }
+  .c-vol      { background:#1c1725; border:1px solid #6e40c9; }
+  .c-mc       { background:#1a1520; border:1px solid #a371f7; }
+  .c-out      { background:#221a12; border:1px solid #d29922; }
+
+  /* ── Row / parallel boxes ──────────────────────── */
+  .row { display: flex; flex-direction: row; align-items: stretch; gap: 12px; justify-content: center; }
+  .row-box { flex: 1; min-width: 0; }
+
+  /* ── Loop border ───────────────────────────────── */
+  .loop-border { border: 2px dashed #2ea043; border-radius: 12px; padding: 12px 14px; position: relative; width: 100%; }
+  .loop-label { position: absolute; top: -11px; left: 16px; background: #0d1117; padding: 0 6px; font-size: 0.75rem; color: #2ea043; font-weight: 700; }
+
+  /* ── U-Net container ───────────────────────────── */
+  .unet { border: 1px dashed #206e27; border-radius: 8px; padding: 10px; position: relative; }
+  .unet-label { position: absolute; top: -10px; right: 10px; background: #0d1117; padding: 0 5px; font-size: 0.7rem; color: #3fb950; }
+
+  .unet-cols { display: flex; gap: 8px; align-items: flex-start; }
+  .unet-col  { display: flex; flex-direction: column; gap: 5px; }
+  .unet-col-label { font-size: 0.7rem; color: #8b949e; text-align: center; margin-bottom: 3px; }
+
+  /* skip connector lines */
+  .skip-connector { font-size: 0.65rem; color: #3a6e1f; text-align: center; padding: 2px; }
+
+  /* ── Legend ─────────────────────────────────────── */
+  .legend { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 24px; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 0.72rem; }
+  .legend-dot  { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+  .small-box { font-size: 0.7rem; padding: 6px 10px; }
+  .wide { min-width: 320px; }
+  .narrow { min-width: 200px; }
+  .medium { min-width: 260px; }
+</style>
+</head>
+<body>
+
+<h1>Hunyuan3D-2.1 Stage 1 · Network Architecture</h1>
+<p class="subtitle">Image → Untextured 3D Mesh via Flow-Matching DiT + VecSet VAE Decoder</p>
+
+<div class="pipeline">
+
+  <!-- ── INPUT ─────────────────────────────────── -->
+  <div class="box c-input wide">
+    <div class="box-title">Input Image</div>
+    <div class="box-sub">Single RGBA (background-removed)</div>
+    <span class="dim dim-out">[B, 4, H, W]  (arbitrary H×W)</span>
+  </div>
+
+  <div class="arrow" style="height:28px">
+    <div class="arrow-line"></div>
+    <div class="arrow-label">resize → 224×224, normalize</div>
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ── CONDITIONER ───────────────────────────── -->
+  <div class="box c-cond wide">
+    <div class="box-title">DualImageEncoder (Conditioner)</div>
+    <div class="box-sub">Frozen CLIP + Frozen DINOv2-Giant — no gradient</div>
+    <div style="margin-top:8px" class="row">
+      <div class="box c-clip row-box small-box">
+        <div class="box-title">CLIP ViT-L/14</div>
+        <div class="box-sub">patch 14px → 16×16=256 patches + 1 CLS</div>
+        <span class="dim dim-in">[B, 3, 224, 224]</span><br>
+        <span class="dim dim-out">→ [B, 257, 1024]</span>
+        <div class="box-sub" style="margin-top:4px">used as main cond (cross-attn keys)</div>
+      </div>
+      <div class="box c-dino row-box small-box">
+        <div class="box-title">DINOv2-Giant</div>
+        <div class="box-sub">patch 14px → 16×16=256 patches + 1 CLS</div>
+        <span class="dim dim-in">[B, 3, 224, 224]</span><br>
+        <span class="dim dim-out">→ [B, 257, 1536]</span>
+        <div class="box-sub" style="margin-top:4px">used as additional cond (projected)</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="arrow" style="height:20px">
+    <div class="arrow-line"></div>
+    <div class="arrow-label">cond['main']=[B,257,1024]  cond['additional']=[B,257,1536]</div>
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ── FLOW MATCHING SAMPLER LOOP ────────────── -->
+  <div class="loop-border wide" style="min-width:780px">
+    <div class="loop-label">⟳  Flow-Matching ODE Solver — 50 steps (t: 1.0 → 0.0)</div>
+
+    <div style="margin-top:8px; display:flex; flex-direction:column; align-items:center; gap:0">
+
+      <!-- Initial latent + scheduler input -->
+      <div class="row" style="gap:16px; margin-bottom:4px">
+        <div class="box c-input small-box narrow">
+          <div class="box-title">Random Latent z₀</div>
+          <span class="dim dim-out">[B, 4096, 4]</span>
+          <div class="box-sub">Gaussian noise</div>
+        </div>
+        <div class="box c-input small-box narrow">
+          <div class="box-title">Timestep t</div>
+          <span class="dim dim-out">[B]  scalar ∈ {1..1000}</span>
+        </div>
+      </div>
+
+      <!-- Arrow into DiT -->
+      <div class="arrow" style="height:16px"><div class="arrow-line"></div><div class="arrow-head"></div></div>
+
+      <!-- DiT outer box -->
+      <div class="box c-dit" style="min-width:760px">
+        <div class="box-title" style="font-size:1rem">HunYuanDiTPlain  (DiT Denoiser)</div>
+        <div class="box-sub">depth=21, hidden=1024, heads=16, head_dim=64</div>
+
+        <!-- Embedders row -->
+        <div class="row" style="margin-top:10px; gap:8px">
+          <div class="box c-dit row-box small-box">
+            <div class="box-title">x_embedder</div>
+            <div class="box-sub">Linear(4 → 1024)</div>
+            <span class="dim dim-in">[B, 4096, 4]</span>
+            <span class="dim dim-out">→ [B, 4096, 1024]</span>
+          </div>
+          <div class="box c-dit row-box small-box">
+            <div class="box-title">TimestepEmbedder</div>
+            <div class="box-sub">sinusoidal → MLP(1024→4096→1024)</div>
+            <span class="dim dim-in">[B]</span>
+            <span class="dim dim-out">→ [B, 1, 1024]</span>
+          </div>
+          <div class="box c-dit row-box small-box">
+            <div class="box-title">AttentionPool + extra_embedder</div>
+            <div class="box-sub">pool CLIP tokens → MLP(1024→4096→1024)</div>
+            <span class="dim dim-in">cond [B, 257, 1024]</span>
+            <span class="dim dim-out">→ c [B, 1, 1024]</span>
+          </div>
+        </div>
+
+        <!-- Concatenation -->
+        <div class="arrow" style="height:14px"><div class="arrow-line"></div>
+          <div class="arrow-label">cat([c, x], dim=1) → x now has class token at pos 0</div>
+          <div class="arrow-line"></div><div class="arrow-head"></div></div>
+
+        <div class="box c-dit small-box" style="margin-bottom:8px">
+          <div class="box-title">x after prepend</div>
+          <span class="dim dim-out">[B, 4097, 1024]</span>
+          <div class="box-sub">token 0 = timestep/image conditioning 'c' token  ·  tokens 1–4096 = 3D latent tokens</div>
+        </div>
+
+        <!-- U-Net blocks -->
+        <div class="unet">
+          <div class="unet-label">U-Net shaped transformer — skip connections</div>
+          <div class="unet-cols">
+
+            <!-- ENCODER COLUMN -->
+            <div class="unet-col" style="min-width:220px">
+              <div class="unet-col-label">Encoder Blocks (no skip-in)</div>
+              <div class="box c-block small-box">
+                <div class="box-title">Block 0</div>
+                <div class="box-sub">self-attn · cross-attn · MLP</div>
+                <span class="dim">[B, 4097, 1024]</span>
+              </div>
+              <div class="box c-block small-box">
+                <div class="box-title">Block 1</div>
+                <div class="box-sub">self-attn · cross-attn · MLP</div>
+                <span class="dim">[B, 4097, 1024]</span>
+              </div>
+              <div style="font-size:0.7rem; text-align:center; color:#8b949e">···  blocks 2–9  ···</div>
+              <div class="box c-block small-box">
+                <div class="box-title">Block 10  (mid)</div>
+                <div class="box-sub">self-attn · cross-attn · MLP</div>
+                <span class="dim">[B, 4097, 1024]</span>
+              </div>
+              <div class="skip-connector" style="margin-top:4px">
+                ← skip values pushed to stack<br>(blocks 0–9 save output)
+              </div>
+            </div>
+
+            <!-- SPACER with skip arrows -->
+            <div style="display:flex; flex-direction:column; justify-content:space-around; align-items:center; padding:20px 4px; min-width:60px">
+              <div style="writing-mode:vertical-lr; transform:rotate(180deg); font-size:0.68rem; color:#3a6e1f; text-align:center">skip connections ↔ (block i ↔ block 20−i)</div>
+              <div style="font-size:1.2rem; color:#3a6e1f">⇄</div>
+            </div>
+
+            <!-- DECODER COLUMN -->
+            <div class="unet-col" style="min-width:220px">
+              <div class="unet-col-label">Decoder Blocks (skip-in from encoder)</div>
+              <div class="box c-skip small-box">
+                <div class="box-title">Block 11</div>
+                <div class="box-sub">skip_linear(2048→1024) · self-attn · cross-attn · MLP</div>
+                <span class="dim">[B, 4097, 1024]</span>
+              </div>
+              <div style="font-size:0.7rem; text-align:center; color:#8b949e">···  blocks 12–14  ···</div>
+              <div class="box c-blockmoe small-box">
+                <div class="box-title">Block 15  <span style="color:#3fb950">[MoE]</span></div>
+                <div class="box-sub">skip · self-attn · cross-attn · MoE(8 experts, top-2)</div>
+                <span class="dim">[B, 4097, 1024]</span>
+              </div>
+              <div style="font-size:0.7rem; text-align:center; color:#8b949e">···  blocks 16–19  ···</div>
+              <div class="box c-blockmoe small-box">
+                <div class="box-title">Block 20  <span style="color:#3fb950">[MoE]</span></div>
+                <div class="box-sub">skip · self-attn · cross-attn · MoE(8 experts, top-2)</div>
+                <span class="dim">[B, 4097, 1024]</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Inside each block detail -->
+        <div style="margin-top:10px; border:1px dashed #2ea043; border-radius:6px; padding:8px">
+          <div style="font-size:0.7rem; color:#3fb950; margin-bottom:5px">Detail: inside each HunYuanDiTBlock</div>
+          <div class="row" style="gap:6px; flex-wrap:wrap">
+            <div class="box c-block row-box small-box" style="min-width:160px">
+              <div class="box-title">① Skip Fusion</div>
+              <div class="box-sub">decoder blocks only</div>
+              <div class="box-sub">cat([skip, x], dim=-1)</div>
+              <span class="dim dim-in">[B, N, 2048]</span>
+              <span class="dim dim-out">→ Linear → [B, N, 1024]</span>
+            </div>
+            <div class="box c-block row-box small-box" style="min-width:160px">
+              <div class="box-title">② Self-Attention</div>
+              <div class="box-sub">norm1(x) → Attention</div>
+              <div class="box-sub">Q=K=V from x (all 4097 tokens)</div>
+              <span class="dim">[B, 4097, 1024]  heads=16, d_head=64</span>
+            </div>
+            <div class="box c-block row-box small-box" style="min-width:160px">
+              <div class="box-title">③ Cross-Attention</div>
+              <div class="box-sub">norm2(x) → CrossAttention</div>
+              <div class="box-sub">Q from x, K/V from CLIP tokens</div>
+              <span class="dim dim-in">x [B, 4097, 1024]  ×  cond [B, 257, 1024]</span>
+              <span class="dim dim-out">→ [B, 4097, 1024]</span>
+            </div>
+            <div class="box c-block row-box small-box" style="min-width:160px">
+              <div class="box-title">④ FFN / MoE</div>
+              <div class="box-sub">norm3(x) → MLP or MoE</div>
+              <div class="box-sub">MLP: 1024→4096→1024</div>
+              <div class="box-sub">MoE: 8 experts, top-2 gating</div>
+              <span class="dim">[B, 4097, 1024]</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Final Layer -->
+        <div class="arrow" style="height:14px"><div class="arrow-line"></div><div class="arrow-head"></div></div>
+        <div class="box c-final small-box">
+          <div class="box-title">FinalLayer</div>
+          <div class="box-sub">LayerNorm → drop token 0 (c) → Linear(1024 → 4)</div>
+          <span class="dim dim-in">[B, 4097, 1024]</span>
+          <span class="dim dim-out">→ [B, 4096, 4]</span>
+          <div class="box-sub">noise prediction  v_θ(z_t, t, cond)</div>
+        </div>
+
+      </div><!-- /DiT inner flex -->
+    </div><!-- /DiT box inner -->
+
+    <!-- CFG combination -->
+    <div class="arrow" style="height:14px"><div class="arrow-line"></div>
+      <div class="arrow-label">CFG: v = v_uncond + s·(v_cond − v_uncond)  (s=7.5)</div>
+      <div class="arrow-line"></div><div class="arrow-head"></div></div>
+
+    <div class="box c-sampler small-box">
+      <div class="box-title">FlowMatchingScheduler.step</div>
+      <div class="box-sub">z_{t−1} = z_t − v · Δt  (rectified flow ODE step)</div>
+      <span class="dim dim-in">v_pred [B, 4096, 4]  +  z_t [B, 4096, 4]</span>
+      <span class="dim dim-out">→ z_{t−1} [B, 4096, 4]</span>
+    </div>
+
+  </div><!-- /loop-border -->
+
+  <div class="arrow" style="height:20px">
+    <div class="arrow-line"></div>
+    <div class="arrow-label">final latent z₀ / scale_factor (learned scalar)</div>
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- ── SHAPE VAE DECODER ───────────────────────── -->
+  <div class="box c-vae" style="min-width:780px">
+    <div class="box-title" style="font-size:1rem">ShapeVAE Decoder</div>
+    <div class="box-sub">VecSet latents → 3D SDF field  (decoder-only at inference)</div>
+
+    <div class="row" style="margin-top:10px; gap:8px">
+      <div class="box c-vae row-box small-box" style="min-width:200px">
+        <div class="box-title">post_kl</div>
+        <div class="box-sub">project latent dim to model width</div>
+        <span class="dim dim-in">[B, 4096, 4]</span>
+        <span class="dim dim-out">→ Linear(4→1024) → [B, 4096, 1024]</span>
+      </div>
+      <div class="box c-vae row-box small-box" style="min-width:200px">
+        <div class="box-title">Transformer (self-attn)</div>
+        <div class="box-sub">~8 layers · heads=16 · width=1024</div>
+        <span class="dim">[B, 4096, 1024] → [B, 4096, 1024]</span>
+        <div class="box-sub">refine latent geometry context</div>
+      </div>
+    </div>
+
+    <div class="arrow" style="height:14px"><div class="arrow-line"></div><div class="arrow-head"></div></div>
+
+    <!-- Volume Decoder -->
+    <div class="box c-vol small-box">
+      <div class="box-title">VanillaVolumeDecoder  +  CrossAttentionDecoder (geo_decoder)</div>
+      <div class="box-sub">Evaluate SDF at every point of a dense 385³ grid, in chunks of 8000 pts</div>
+      <div class="row" style="margin-top:8px; gap:8px">
+        <div class="box c-vol row-box small-box">
+          <div class="box-title">Grid Queries</div>
+          <div class="box-sub">np.linspace(−1.01, 1.01, 385) × 3 axes</div>
+          <span class="dim">385³ = 57.29M pts  →  [chunk, 3]</span>
+        </div>
+        <div class="box c-vol row-box small-box">
+          <div class="box-title">FourierEmbedder</div>
+          <div class="box-sub">8 freqs · sin/cos · include_input</div>
+          <span class="dim dim-in">[B, chunk, 3]</span>
+          <span class="dim dim-out">→ [B, chunk, 51]</span>
+          <div class="box-sub">3 × (8×2 + 1) = 51</div>
+        </div>
+        <div class="box c-vol row-box small-box">
+          <div class="box-title">query_proj + CrossAttn</div>
+          <div class="box-sub">Linear(51→1024) then Q=queries, K/V=latents</div>
+          <span class="dim dim-in">Q [B, chunk, 1024]  ×  KV [B, 4096, 1024]</span>
+          <span class="dim dim-out">→ Linear(1024→1) → [B, chunk, 1]</span>
+        </div>
+      </div>
+      <div style="margin-top:6px; font-size:0.72rem; color:#8b949e">
+        After all chunks → reshape to grid_logits
+        <span class="dim dim-out">[B, 385, 385, 385]</span>
+        (float32 SDF logits)
+      </div>
+    </div>
+
+    <div class="arrow" style="height:14px"><div class="arrow-line"></div><div class="arrow-head"></div></div>
+
+    <!-- Marching cubes -->
+    <div class="box c-mc small-box">
+      <div class="box-title">MarchingCubes (skimage)  ·  iso-value = −1/512</div>
+      <div class="box-sub">extract zero-level-set surface from SDF grid</div>
+      <span class="dim dim-in">[B, 385, 385, 385]</span>
+      <span class="dim dim-out">→ vertices [V, 3]  +  faces [F, 3]</span>
+    </div>
+
+  </div><!-- /ShapeVAE -->
+
+  <div class="arrow" style="height:20px">
+    <div class="arrow-line"></div>
+    <div class="arrow-label">trimesh.Trimesh(vertices, faces)</div>
+    <div class="arrow-line"></div>
+    <div class="arrow-head"></div>
+  </div>
+
+  <!-- OUTPUT -->
+  <div class="box c-out wide">
+    <div class="box-title">Output — Untextured Mesh (.glb)</div>
+    <div class="box-sub">trimesh.Trimesh object  ·  typically ~50k–200k faces</div>
+  </div>
+
+</div><!-- /pipeline -->
+
+
+<!-- ── Legend ─────────────────────────── -->
+<div class="legend">
+  <div class="legend-item"><div class="legend-dot" style="background:#1f6feb"></div>Input / I/O</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#388bfd"></div>Conditioner (frozen)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#2ea043"></div>DiT Denoiser</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div>DiT Decoder Block (skip + MoE)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#8957e5"></div>ShapeVAE (inference only)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#a371f7"></div>Surface Extraction</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#d29922"></div>Output Mesh</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#79c0ff; border:1px solid #888"></div>Input tensor dim (blue)</div>
+  <div class="legend-item"><div class="legend-dot" style="background:#56d364; border:1px solid #888"></div>Output tensor dim (green)</div>
+</div>
+
+<p style="text-align:center; margin-top:20px; font-size:0.72rem; color:#484f58">
+  All dims shown for batch size B=1 inference. CFG doubles batch to B=2 inside each DiT call.
+  Depth=21 blocks: 0–10 encoder (MLP), 11–14 decoder (MLP), 15–20 decoder (MoE, 8 experts top-2).
+</p>
+
+</body>
+</html>

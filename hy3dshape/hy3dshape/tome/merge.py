@@ -23,12 +23,17 @@ def bipartite_soft_matching(
     metric: torch.Tensor,
     r: int,
     class_token: bool = False,
+    protect_mask: torch.Tensor = None,
 ) -> Tuple[Callable, Callable]:
     """Returns (merge, unmerge) closures.
 
     metric: [B, N, C] similarity feature per token (use Xpre or K).
     r:      number of tokens to remove this layer.
     class_token: if True, token 0 is protected (never chosen as a source).
+    protect_mask: optional [B, N] bool tensor. True = token is protected from
+                  being a merge source (e.g. surface/edge tokens). Only
+                  even-indexed tokens can be sources; odd-indexed entries in
+                  the mask are ignored.
     """
     protected = 1 if class_token else 0
     t = metric.shape[1]
@@ -44,7 +49,19 @@ def bipartite_soft_matching(
         if class_token:
             scores[..., 0, :] = -math.inf
 
+        if protect_mask is not None:
+            src_protect = protect_mask[..., ::2]  # [B, len_a]
+            scores = scores.masked_fill(src_protect.unsqueeze(-1), -math.inf)
+
         node_max, node_idx = scores.max(dim=-1)
+
+        # Clamp r to available (unmasked) sources so we never select
+        # protected or class tokens as merge sources.
+        n_available = (node_max > -math.inf).sum(dim=-1).min().item()
+        r = min(r, int(n_available))
+        if r <= 0:
+            return do_nothing, do_nothing
+
         edge_idx = node_max.argsort(dim=-1, descending=True)[..., None]
 
         unm_idx = edge_idx[..., r:, :]
