@@ -67,13 +67,21 @@ def stage1_shape(args, image):
     pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(args.model_path)
 
     if args.tome:
-        print(f"[ToMe-SD] ratio={args.ratio} skip_first={args.skip_first} "
-              f"skip_last={args.skip_last}")
+        mode_desc = "locality" if args.pos_head else (
+            f"surface-aware(protect={args.protect_ratio})" if args.protect_ratio > 0
+            else "vanilla"
+        )
+        print(f"[ToMe-SD] mode={mode_desc} ratio={args.ratio} "
+              f"skip_first={args.skip_first} skip_last={args.skip_last}")
         apply_patch(
             pipeline.model,
             ratio=args.ratio,
             skip_first=args.skip_first,
             skip_last=args.skip_last,
+            protect_ratio=args.protect_ratio,
+            pos_head_path=args.pos_head if args.pos_head else None,
+            locality_alpha=args.locality_alpha,
+            locality_sigma=args.locality_sigma,
         )
         cfg = pipeline.model._tome_config
         print(f"[ToMe-SD] mode={cfg['mode']} "
@@ -152,7 +160,14 @@ def run(args):
 
     print("\n=== Summary ===")
     print(f"  tag:           {args.tag}")
-    print(f"  ToMe-SD:       {'on (ratio=%g)' % args.ratio if args.tome else 'off'}")
+    if args.tome:
+        _mode = "locality" if args.pos_head else (
+            f"surface-aware(protect={args.protect_ratio})" if args.protect_ratio > 0
+            else "vanilla"
+        )
+        print(f"  ToMe-SD:       on (ratio={args.ratio}, mode={_mode})")
+    else:
+        print(f"  ToMe-SD:       off")
     print(f"  Stage 1 time:  {t1:.2f} s   peak {m1:.2f} GB")
     print(f"  Stage 2 time:  {t2:.2f} s   peak {m2:.2f} GB")
     print(f"  Total time:    {t1 + t2:.2f} s")
@@ -171,6 +186,16 @@ def main():
     p.add_argument("--ratio", type=float, default=0.5)
     p.add_argument("--skip_first", type=int, default=2)
     p.add_argument("--skip_last", type=int, default=2)
+    # Option 2: surface-aware protection
+    p.add_argument("--protect_ratio", type=float, default=0.0,
+                   help="Fraction of high-saliency tokens protected from merging.")
+    # Option 1: locality-aware matching
+    p.add_argument("--pos_head", default=None,
+                   help="Path to trained PositionHead .pt file (enables locality mode).")
+    p.add_argument("--locality_alpha", type=float, default=0.5,
+                   help="Proximity weight in locality score (0=feature-only, 1=pos-only).")
+    p.add_argument("--locality_sigma", type=float, default=0.3,
+                   help="Spatial bandwidth for locality Gaussian kernel.")
 
     # Profiling
     p.add_argument("--profile", action="store_true",

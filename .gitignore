@@ -175,6 +175,7 @@ gradio_cache/
 *.ply
 *.mtl
 core.*
+*.pt
 
 
 
